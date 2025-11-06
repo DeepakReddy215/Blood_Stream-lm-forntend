@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { FiAward, FiDroplet, FiTrendingUp, FiUser, FiHeart, FiStar } from 'react-icons/fi';
 import axios from 'axios';
@@ -377,12 +378,12 @@ const HallOfHeroes = () => {
           <p className="text-lg text-gray-700 dark:text-gray-300 mb-4">
             Want to join our Hall of Heroes?
           </p>
-          <a
-            href="/register"
+          <Link
+            to="/register"
             className="inline-block bg-red-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-red-700 transition-colors"
           >
             Become a Hero Today
-          </a>
+          </Link>
         </motion.div>
       </div>
     </div>
