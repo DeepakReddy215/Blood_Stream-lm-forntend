@@ -44,6 +44,15 @@ const Register = () => {
       });
     }
     
+    // Clear bloodType when switching to delivery or admin role
+    if (name === 'role' && (value === 'delivery' || value === 'admin')) {
+      setFormData(prev => ({
+        ...prev,
+        role: value,
+        bloodType: '' // Clear blood type
+      }));
+    }
+    
     // Clear error for this field
     if (errors[name]) {
       setErrors({
@@ -76,8 +85,9 @@ const Register = () => {
       newErrors.confirmPassword = 'Passwords do not match';
     }
     
+    // Only validate bloodType for donor and recipient roles
     if ((formData.role === 'donor' || formData.role === 'recipient') && !formData.bloodType) {
-      newErrors.bloodType = 'Blood type is required';
+      newErrors.bloodType = 'Blood type is required for donors and recipients';
     }
     
     if (!formData.phone) {
@@ -102,7 +112,15 @@ const Register = () => {
     }
     
     setLoading(true);
+    
+    // Prepare data for submission
     const { confirmPassword, ...dataToSubmit } = formData;
+    
+    // Remove bloodType if not needed for the role
+    if (formData.role === 'delivery' || formData.role === 'admin') {
+      delete dataToSubmit.bloodType;
+    }
+    
     const result = await register(dataToSubmit);
     
     if (!result.success) {
@@ -239,13 +257,20 @@ const Register = () => {
                   <option value="donor">Donor</option>
                   <option value="recipient">Recipient</option>
                   <option value="delivery">Delivery Personnel</option>
+                  <option value="admin">Admin</option>
                 </select>
+                {formData.role === 'delivery' && (
+                  <p className="mt-1 text-xs text-blue-600">
+                    Blood type not required for delivery personnel
+                  </p>
+                )}
               </div>
 
-              {(formData.role === 'donor' || formData.role === 'recipient') && (
+              {(formData.role === 'donor' || formData.role === 'recipient') ? (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Blood Type
+                    <span className="text-red-500 ml-1">*</span>
                   </label>
                   <select
                     name="bloodType"
@@ -261,6 +286,17 @@ const Register = () => {
                   {errors.bloodType && (
                     <p className="mt-1 text-xs text-red-600">{errors.bloodType}</p>
                   )}
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Department/Unit
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={formData.role === 'delivery' ? 'Delivery Unit' : 'Admin Department'}
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                  />
                 </div>
               )}
 
@@ -371,6 +407,27 @@ const Register = () => {
             >
               {loading ? 'Creating Account...' : 'Create Account'}
             </button>
+          </div>
+
+          {/* Quick Test Account Info */}
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+            <p className="text-sm text-blue-800 dark:text-blue-300 font-semibold mb-2">
+              Quick Test Info for Registration:
+            </p>
+            <div className="grid grid-cols-2 gap-2 text-xs text-blue-700 dark:text-blue-400">
+              <div>
+                <strong>Donor:</strong> Blood type required
+              </div>
+              <div>
+                <strong>Recipient:</strong> Blood type required
+              </div>
+              <div>
+                <strong>Delivery:</strong> No blood type needed
+              </div>
+              <div>
+                <strong>Admin:</strong> No blood type needed
+              </div>
+            </div>
           </div>
         </form>
       </motion.div>
