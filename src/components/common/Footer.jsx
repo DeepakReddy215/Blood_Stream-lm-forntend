@@ -70,7 +70,7 @@ const Footer = () => {
           <p className="flex items-center justify-center">
             Made with <FiHeart className="text-red-500 mx-1" /> for College Project
           </p>
-          <p className="mt-2">© 2024 BloodStream. All rights reserved.</p>
+          <p className="mt-2">© 2025 BloodStream. All rights reserved.</p>
         </div>
       </div>
     </footer>

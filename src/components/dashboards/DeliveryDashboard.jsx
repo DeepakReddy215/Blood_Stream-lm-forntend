@@ -200,13 +200,14 @@ const DeliveryDashboard = () => {
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
             Delivery Map
           </h3>
-          <div className="h-96 bg-gray-200 rounded-lg">
+          <div className="h-96 bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden">
             <MapView 
               centers={activeDeliveries.map(d => ({
                 ...d.dropLocation,
                 type: 'delivery'
               }))}
               currentLocation={currentLocation}
+              height="100%"
             />
           </div>
         </div>

@@ -552,8 +552,8 @@ const RecipientDashboard = () => {
                 </h3>
                 
                 <div className="mb-6">
-                  <div className="h-64 bg-gray-200 rounded-lg">
-                    <MapView centers={[]} />
+                  <div className="h-64 bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden">
+                    <MapView centers={[]} height="100%" />
                   </div>
                 </div>
 
