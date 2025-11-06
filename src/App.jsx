@@ -20,7 +20,7 @@ function App() {
       <AuthProvider>
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
           <Navbar />
-          <main className="flex-grow">
+          <main className="flex-grow pt-0">
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />

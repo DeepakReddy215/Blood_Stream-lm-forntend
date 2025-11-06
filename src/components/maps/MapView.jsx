@@ -197,9 +197,9 @@ const MapView = ({
   };
 
   return (
-    <div className="relative w-full rounded-lg overflow-hidden" style={{ height }}>
+    <div className="relative w-full rounded-lg overflow-hidden shadow-lg" style={{ height }}>
       {/* Map Controls */}
-      <div className="absolute top-4 right-4 z-10 space-y-2">
+      <div className="absolute top-4 right-4 z-[90] space-y-2">
         {/* Radius Selector */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-3">
           <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 block mb-2">
