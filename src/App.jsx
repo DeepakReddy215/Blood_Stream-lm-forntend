@@ -11,7 +11,7 @@ import DonorDashboard from './components/dashboards/DonorDashboard';
 import RecipientDashboard from './components/dashboards/RecipientDashboard';
 import DeliveryDashboard from './components/dashboards/DeliveryDashboard';
 import AdminDashboard from './components/dashboards/AdminDashboard';
-import Leaderboard from './pages/Leaderboard';
+import HallOfHeroes from './pages/HallOfHeroes';
 import PublicCard from './pages/PublicCard';
 
 function App() {
@@ -25,7 +25,7 @@ function App() {
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
-              <Route path="/leaderboard" element={<Leaderboard />} />
+              <Route path="/heroes" element={<HallOfHeroes />} />
               <Route path="/card/:userId" element={<PublicCard />} />
               
               <Route element={<ProtectedRoute allowedRoles={['donor']} />}>

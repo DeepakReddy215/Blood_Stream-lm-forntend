@@ -6,12 +6,41 @@ export const URGENCY_LEVELS = {
   normal: { label: 'Normal', color: 'green', priority: 3 }
 };
 
+// Updated badge levels with hero terminology
 export const BADGE_LEVELS = {
-  bronze: { label: 'Bronze', color: 'amber', minDonations: 0 },
-  silver: { label: 'Silver', color: 'gray', minDonations: 5 },
-  gold: { label: 'Gold', color: 'yellow', minDonations: 10 },
-  platinum: { label: 'Platinum', color: 'purple', minDonations: 20 }
+  bronze: { 
+    label: 'Rising Hero', 
+    color: 'amber', 
+    minDonations: 0,
+    description: 'Just started their life-saving journey'
+  },
+  silver: { 
+    label: 'Dedicated Hero', 
+    color: 'gray', 
+    minDonations: 5,
+    description: 'Committed to saving lives regularly'
+  },
+  gold: { 
+    label: 'Champion Hero', 
+    color: 'yellow', 
+    minDonations: 10,
+    description: 'An exemplary life-saver in the community'
+  },
+  platinum: { 
+    label: 'Legendary Hero', 
+    color: 'purple', 
+    minDonations: 20,
+    description: 'An inspiration to all, saved countless lives'
+  }
 };
+
+export const HERO_MESSAGES = [
+  "Heroes don't wear capes, they donate blood",
+  "Be someone's hero today",
+  "Every drop counts, every hero matters",
+  "Your donation is someone's lifeline",
+  "Real heroes save lives with compassion"
+];
 
 export const DELIVERY_STATUS = {
   assigned: { label: 'Assigned', color: 'blue' },

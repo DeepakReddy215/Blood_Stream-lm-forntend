@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
-import { FiSun, FiMoon, FiMenu, FiX, FiDroplet, FiUser, FiLogOut } from 'react-icons/fi';
+import { FiSun, FiMoon, FiMenu, FiX, FiDroplet, FiUser, FiLogOut, FiAward } from 'react-icons/fi';
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -40,8 +40,9 @@ const Navbar = () => {
             <Link to="/" className="text-gray-700 dark:text-gray-300 hover:text-red-600 px-3 py-2">
               Home
             </Link>
-            <Link to="/leaderboard" className="text-gray-700 dark:text-gray-300 hover:text-red-600 px-3 py-2">
-              Leaderboard
+            <Link to="/heroes" className="text-gray-700 dark:text-gray-300 hover:text-red-600 px-3 py-2 flex items-center gap-1">
+              <FiAward className="text-yellow-500" />
+              Hall of Heroes
             </Link>
             
             {user ? (
@@ -119,11 +120,11 @@ const Navbar = () => {
                 Home
               </Link>
               <Link
-                to="/leaderboard"
+                to="/heroes"
                 className="block px-3 py-2 text-gray-700 dark:text-gray-300 hover:text-red-600"
                 onClick={() => setIsMenuOpen(false)}
               >
-                Leaderboard
+                Hall of Heroes
               </Link>
               
               {user ? (
