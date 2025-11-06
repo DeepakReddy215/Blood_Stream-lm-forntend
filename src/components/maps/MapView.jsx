@@ -4,6 +4,9 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useLocation } from '../../hooks/useLocation';
 import { useSocket } from '../../hooks/useSocket';
+import axios from 'axios';
+import { FiRefreshCw, FiFilter, FiMapPin } from 'react-icons/fi';
+import toast from 'react-hot-toast';
 
 // Fix for default markers
 delete L.Icon.Default.prototype._getIconUrl;
@@ -14,14 +17,14 @@ L.Icon.Default.mergeOptions({
 });
 
 // Component to handle map centering
-const MapController = ({ center }) => {
+const MapController = ({ center, zoom }) => {
   const map = useMap();
   
   useEffect(() => {
     if (center) {
-      map.setView(center, map.getZoom());
+      map.setView(center, zoom || map.getZoom());
     }
-  }, [center, map]);
+  }, [center, zoom, map]);
   
   return null;
 };
@@ -30,38 +33,102 @@ const MapView = ({
   centers = [], 
   showCurrentLocation = true,
   showRadius = true,
-  radius = 5000, // in meters
+  initialRadius = 10, // in km
   onMarkerClick,
-  height = '400px'
+  height = '400px',
+  bloodTypeFilter = null,
+  roleFilter = null
 }) => {
-  const { location: currentLocation, loading } = useLocation(true);
+  const { location: currentLocation, loading, refetch: refetchLocation } = useLocation(true);
   const { socket } = useSocket();
   const [liveUsers, setLiveUsers] = useState([]);
   const [mapCenter, setMapCenter] = useState([28.6139, 77.2090]); // Default New Delhi
+  const [searchRadius, setSearchRadius] = useState(initialRadius);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [mapZoom, setMapZoom] = useState(13);
+
+  // Fetch live users in range
+  const fetchLiveUsers = async () => {
+    if (!currentLocation) return;
+    
+    setIsRefreshing(true);
+    try {
+      const params = new URLSearchParams({
+        lat: currentLocation.lat,
+        lng: currentLocation.lng,
+        radius: searchRadius,
+        ...(roleFilter && { role: roleFilter }),
+        ...(bloodTypeFilter && { bloodType: bloodTypeFilter })
+      });
+
+      const response = await axios.get(
+        `${import.meta.env.VITE_API_URL}/blood/live-users?${params}`,
+        {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        }
+      );
+
+      if (response.data.success) {
+        setLiveUsers(response.data.data);
+        toast.success(`Found ${response.data.count} users within ${searchRadius}km`);
+      }
+    } catch (error) {
+      console.error('Failed to fetch live users:', error);
+      toast.error('Failed to fetch nearby users');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     if (currentLocation && !loading) {
       setMapCenter([currentLocation.lat, currentLocation.lng]);
+      fetchLiveUsers();
     }
-  }, [currentLocation, loading]);
+  }, [currentLocation, loading, searchRadius]);
 
   useEffect(() => {
     if (!socket) return;
 
-    // Listen for real-time location updates
+    // Listen for real-time location updates only from nearby users
     socket.on('user-location-updated', (data) => {
-      setLiveUsers(prev => {
-        const filtered = prev.filter(u => u.userId !== data.userId);
-        return [...filtered, data];
-      });
+      // Only add/update if within current search radius
+      if (data.distance && data.distance <= searchRadius) {
+        setLiveUsers(prev => {
+          const filtered = prev.filter(u => u._id !== data.userId);
+          return [...filtered, {
+            _id: data.userId,
+            role: data.role,
+            bloodType: data.bloodType,
+            address: { coordinates: data.coordinates },
+            distance: data.distance,
+            isLive: true,
+            lastSeen: new Date()
+          }];
+        });
+      }
+    });
+
+    socket.on('user-offline', (userId) => {
+      setLiveUsers(prev => prev.filter(u => u._id !== userId));
     });
 
     return () => {
       socket.off('user-location-updated');
+      socket.off('user-offline');
     };
-  }, [socket]);
+  }, [socket, searchRadius]);
 
-  const createCustomIcon = (type, isLive = false) => {
+  // Adjust zoom based on radius
+  useEffect(() => {
+    if (searchRadius <= 5) setMapZoom(14);
+    else if (searchRadius <= 10) setMapZoom(13);
+    else if (searchRadius <= 25) setMapZoom(12);
+    else if (searchRadius <= 50) setMapZoom(11);
+    else setMapZoom(10);
+  }, [searchRadius]);
+
+  const createCustomIcon = (type, isLive = false, distance = null) => {
     const colors = {
       donor: '#10b981',
       recipient: '#ef4444',
@@ -71,7 +138,7 @@ const MapView = ({
     };
 
     const pulseAnimation = isLive ? `
-      @keyframes pulse {
+      @keyframes pulse-${type} {
         0% { box-shadow: 0 0 0 0 rgba(${type === 'donor' ? '16, 185, 129' : '239, 68, 68'}, 0.7); }
         70% { box-shadow: 0 0 0 20px rgba(${type === 'donor' ? '16, 185, 129' : '239, 68, 68'}, 0); }
         100% { box-shadow: 0 0 0 0 rgba(${type === 'donor' ? '16, 185, 129' : '239, 68, 68'}, 0); }
@@ -92,7 +159,8 @@ const MapView = ({
           justify-content: center;
           border: 3px solid white;
           box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-          ${isLive ? 'animation: pulse 2s infinite;' : ''}
+          position: relative;
+          ${isLive ? `animation: pulse-${type} 2s infinite;` : ''}
         ">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
             ${type === 'donor' ? 
@@ -104,6 +172,22 @@ const MapView = ({
               '<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>'
             }
           </svg>
+          ${distance ? `
+            <div style="
+              position: absolute;
+              bottom: -20px;
+              left: 50%;
+              transform: translateX(-50%);
+              background: rgba(0,0,0,0.8);
+              color: white;
+              padding: 2px 4px;
+              border-radius: 3px;
+              font-size: 10px;
+              white-space: nowrap;
+            ">
+              ${distance}km
+            </div>
+          ` : ''}
         </div>
       `,
       iconSize: isLive ? [35, 35] : [30, 30],
@@ -113,10 +197,46 @@ const MapView = ({
   };
 
   return (
-    <div className="w-full rounded-lg overflow-hidden" style={{ height }}>
+    <div className="relative w-full rounded-lg overflow-hidden" style={{ height }}>
+      {/* Map Controls */}
+      <div className="absolute top-4 right-4 z-10 space-y-2">
+        {/* Radius Selector */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-3">
+          <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 block mb-2">
+            Search Radius: {searchRadius}km
+          </label>
+          <select
+            value={searchRadius}
+            onChange={(e) => setSearchRadius(Number(e.target.value))}
+            className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-red-500"
+          >
+            <option value={5}>5 km</option>
+            <option value={10}>10 km</option>
+            <option value={25}>25 km</option>
+            <option value={50}>50 km</option>
+          </select>
+        </div>
+
+        {/* Refresh Button */}
+        <button
+          onClick={fetchLiveUsers}
+          disabled={isRefreshing}
+          className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        >
+          <FiRefreshCw className={`text-gray-700 dark:text-gray-300 ${isRefreshing ? 'animate-spin' : ''}`} />
+        </button>
+
+        {/* Live Users Count */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg px-3 py-2">
+          <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+            Live: {liveUsers.length}
+          </p>
+        </div>
+      </div>
+
       <MapContainer 
         center={mapCenter} 
-        zoom={13} 
+        zoom={mapZoom} 
         style={{ height: '100%', width: '100%' }}
         className="z-0"
       >
@@ -125,7 +245,7 @@ const MapView = ({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         />
         
-        <MapController center={mapCenter} />
+        <MapController center={mapCenter} zoom={mapZoom} />
         
         {/* Current User Location */}
         {showCurrentLocation && currentLocation && (
@@ -140,6 +260,12 @@ const MapView = ({
                   <p className="text-sm text-gray-600">
                     Accuracy: ±{Math.round(currentLocation.accuracy)}m
                   </p>
+                  <button
+                    onClick={refetchLocation}
+                    className="mt-2 text-xs bg-blue-600 text-white px-2 py-1 rounded"
+                  >
+                    Update Location
+                  </button>
                 </div>
               </Popup>
             </Marker>
@@ -147,7 +273,7 @@ const MapView = ({
             {showRadius && (
               <Circle
                 center={[currentLocation.lat, currentLocation.lng]}
-                radius={radius}
+                radius={searchRadius * 1000} // Convert km to meters
                 pathOptions={{ 
                   fillColor: '#8b5cf6', 
                   fillOpacity: 0.05,
@@ -160,22 +286,58 @@ const MapView = ({
           </>
         )}
 
-        {/* Live Users from Socket */}
-        {liveUsers.map((user) => (
-          <Marker
-            key={user.userId}
-            position={[user.coordinates.lat, user.coordinates.lng]}
-            icon={createCustomIcon(user.role, true)}
-          >
-            <Popup>
-              <div className="p-2">
-                <p className="font-semibold">Live {user.role}</p>
-                <p className="text-sm">Blood Type: {user.bloodType}</p>
-                <p className="text-xs text-gray-500">Active now</p>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
+        {/* Live Users from API and Socket */}
+        {liveUsers.map((user) => {
+          const coords = user.address?.coordinates || user.coordinates;
+          if (!coords) return null;
+
+          return (
+            <Marker
+              key={user._id || user.userId}
+              position={[coords.lat, coords.lng]}
+              icon={createCustomIcon(user.role, true, user.distance)}
+            >
+              <Popup>
+                <div className="p-2 min-w-[200px]">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className={`px-2 py-1 text-xs rounded-full ${
+                      user.role === 'donor' ? 'bg-green-100 text-green-800' :
+                      user.role === 'recipient' ? 'bg-red-100 text-red-800' :
+                      'bg-blue-100 text-blue-800'
+                    }`}>
+                      {user.role}
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      {user.distance ? `${user.distance}km away` : 'Live'}
+                    </span>
+                  </div>
+                  {user.name && <p className="font-semibold">{user.name}</p>}
+                  <p className="text-sm">
+                    Blood Type: <span className="font-semibold text-red-600">{user.bloodType}</span>
+                  </p>
+                  {user.lastSeen && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Last seen: {new Date(user.lastSeen).toLocaleTimeString()}
+                    </p>
+                  )}
+                  {user.donationCount !== undefined && (
+                    <p className="text-xs text-gray-600 mt-1">
+                      Donations: {user.donationCount} | Badge: {user.badgeLevel}
+                    </p>
+                  )}
+                  {onMarkerClick && (
+                    <button
+                      onClick={() => onMarkerClick(user)}
+                      className="mt-3 w-full bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
+                    >
+                      Contact
+                    </button>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
 
         {/* Static Centers/Markers */}
         {centers.map((center, index) => {
