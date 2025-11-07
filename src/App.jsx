@@ -13,6 +13,7 @@ import DeliveryDashboard from './components/dashboards/DeliveryDashboard';
 import AdminDashboard from './components/dashboards/AdminDashboard';
 import HallOfHeroes from './pages/HallOfHeroes';
 import PublicCard from './pages/PublicCard';
+import VirtualBloodDrive from './components/bloodDrive/VirtualBloodDrive';
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
               <Route path="/register" element={<Register />} />
               <Route path="/heroes" element={<HallOfHeroes />} />
               <Route path="/card/:userId" element={<PublicCard />} />
+              <Route path="/blood-drives" element={<VirtualBloodDrive />} />
               
               <Route element={<ProtectedRoute allowedRoles={['donor']} />}>
                 <Route path="/donor-dashboard" element={<DonorDashboard />} />

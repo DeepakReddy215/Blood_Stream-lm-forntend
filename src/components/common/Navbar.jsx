@@ -44,6 +44,10 @@ const Navbar = () => {
               <FiAward className="text-yellow-500" />
               Hall of Heroes
             </Link>
+            <Link to="/blood-drives" className="text-gray-700 dark:text-gray-300 hover:text-red-600 px-3 py-2 flex items-center gap-1">
+              <FiDroplet className="text-red-500" />
+              Blood Drives
+            </Link>
             
             {user ? (
               <>
@@ -125,6 +129,13 @@ const Navbar = () => {
                 onClick={() => setIsMenuOpen(false)}
               >
                 Hall of Heroes
+              </Link>
+              <Link
+                to="/blood-drives"
+                className="block px-3 py-2 text-gray-700 dark:text-gray-300 hover:text-red-600"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                Blood Drives
               </Link>
               
               {user ? (
