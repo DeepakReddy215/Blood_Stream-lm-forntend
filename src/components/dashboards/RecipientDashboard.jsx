@@ -1,16 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { FiDroplet, FiAlertCircle, FiClock, FiMapPin, FiPhone, FiUser } from 'react-icons/fi';
+import { FiDroplet, FiAlertCircle, FiClock, FiMapPin, FiPhone, FiUser, FiCheckCircle } from 'react-icons/fi';
 import { useAuth } from '../../contexts/AuthContext';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import BloodCard from '../cards/BloodCard';
 import MapView from '../maps/MapView';
 import { BLOOD_TYPES, URGENCY_LEVELS } from '../../utils/constants';
+import { useSocket } from '../../hooks/useSocket';
 
 const RecipientDashboard = () => {
   const { user } = useAuth();
+  const { socket } = useSocket();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('overview');
   const [showBloodCard, setShowBloodCard] = useState(false);
   const [requestForm, setRequestForm] = useState({
@@ -24,6 +27,32 @@ const RecipientDashboard = () => {
       contact: ''
     }
   });
+
+  // Listen for donor acceptances
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on('donor-accepted', (data) => {
+      toast.custom((t) => (
+        <div className="bg-green-600 text-white p-4 rounded-lg shadow-lg">
+          <div className="flex items-center gap-2">
+            <FiCheckCircle className="text-2xl" />
+            <div>
+              <p className="font-semibold">Great News!</p>
+              <p className="text-sm">{data.message}</p>
+            </div>
+          </div>
+        </div>
+      ));
+      
+      // Refetch requests to show updated status
+      refetchRequests();
+    });
+
+    return () => {
+      socket.off('donor-accepted');
+    };
+  }, [socket, refetchRequests]);
 
   // Fetch my blood requests
   const { data: myRequests, refetch: refetchRequests } = useQuery({
