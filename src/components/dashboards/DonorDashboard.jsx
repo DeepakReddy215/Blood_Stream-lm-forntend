@@ -60,6 +60,32 @@ const DonorDashboard = () => {
     }
   });
 
+  // Respond to blood request mutation
+  const respondToRequestMutation = useMutation({
+    mutationFn: async ({ requestId, response }) => {
+      const res = await axios.post(
+        `${import.meta.env.VITE_API_URL}/blood/respond/${requestId}`,
+        { response },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      return res.data;
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || 'Response sent successfully!');
+      refetch(); // Refresh blood requests
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.message || 'Failed to respond to request');
+    }
+  });
+
+  const handleRespondToRequest = (requestId, response) => {
+    const action = response === 'accept' ? 'accept' : 'decline';
+    if (window.confirm(`Are you sure you want to ${action} this blood donation request?`)) {
+      respondToRequestMutation.mutate({ requestId, response });
+    }
+  };
+
   const handleScheduleDonation = (e) => {
     e.preventDefault();
     const scheduledDate = new Date(`${appointmentData.date} ${appointmentData.time}`);
@@ -464,9 +490,22 @@ const DonorDashboard = () => {
                         </div>
                       </div>
                       {request.bloodType === user?.bloodType && (
-                        <button className="btn-primary mt-3 w-full">
-                          Respond to Request
-                        </button>
+                        <div className="flex gap-2 mt-3">
+                          <button 
+                            onClick={() => handleRespondToRequest(request._id, 'accept')}
+                            className="btn-primary flex-1"
+                            disabled={respondToRequestMutation.isLoading}
+                          >
+                            Accept Request
+                          </button>
+                          <button 
+                            onClick={() => handleRespondToRequest(request._id, 'decline')}
+                            className="btn-secondary flex-1"
+                            disabled={respondToRequestMutation.isLoading}
+                          >
+                            Decline
+                          </button>
+                        </div>
                       )}
                     </div>
                   ))}
