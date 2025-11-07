@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { FiTruck, FiMapPin, FiClock, FiCheckCircle, FiNavigation, FiPhone, FiPackage } from 'react-icons/fi';
+import { 
+  FiTruck, FiMapPin, FiClock, FiCheckCircle, FiNavigation, 
+  FiPhone, FiPackage, FiAlertCircle, FiUser, FiDroplet,
+  FiExternalLink, FiRefreshCw
+} from 'react-icons/fi';
 import { useAuth } from '../../contexts/AuthContext';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import MapView from '../maps/MapView';
@@ -11,10 +15,12 @@ import io from 'socket.io-client';
 
 const DeliveryDashboard = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('active');
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState('available');
   const [selectedDelivery, setSelectedDelivery] = useState(null);
   const [currentLocation, setCurrentLocation] = useState(null);
   const [socket, setSocket] = useState(null);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   useEffect(() => {
     // Connect to socket
@@ -38,14 +44,54 @@ const DeliveryDashboard = () => {
     return () => newSocket.close();
   }, []);
 
-  // Fetch assigned deliveries
-  const { data: deliveries, refetch: refetchDeliveries } = useQuery({
-    queryKey: ['deliveries', user?._id],
+  // Fetch available deliveries (not yet assigned)
+  const { data: availableDeliveries, refetch: refetchAvailable } = useQuery({
+    queryKey: ['availableDeliveries'],
+    queryFn: async () => {
+      const response = await axios.get(`${import.meta.env.VITE_API_URL}/delivery/available`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      return response.data.data;
+    }
+  });
+
+  // Fetch assigned deliveries (renamed for clarity)
+  const { data: myDeliveries, refetch: refetchMyDeliveries } = useQuery({
+    queryKey: ['myDeliveries', user?._id],
     queryFn: async () => {
       const response = await axios.get(`${import.meta.env.VITE_API_URL}/delivery/assigned`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       return response.data.data;
+    }
+  });
+
+  // Accept delivery mutation
+  const acceptDeliveryMutation = useMutation({
+    mutationFn: async (deliveryId) => {
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/delivery/accept/${deliveryId}`,
+        {},
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      return response.data;
+    },
+    onSuccess: (data) => {
+      toast.success('Delivery accepted successfully!');
+      refetchAvailable();
+      refetchMyDeliveries();
+      setActiveTab('active');
+      
+      // Notify via socket
+      if (socket) {
+        socket.emit('delivery-accepted', {
+          deliveryId: data.data._id,
+          deliveryPerson: user.name
+        });
+      }
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.message || 'Failed to accept delivery');
     }
   });
 
@@ -61,10 +107,10 @@ const DeliveryDashboard = () => {
     },
     onSuccess: () => {
       toast.success('Delivery status updated!');
-      refetchDeliveries();
+      refetchMyDeliveries();
       
       // Emit socket event
-      if (socket) {
+      if (socket && selectedDelivery) {
         socket.emit('delivery-status-update', {
           deliveryId: selectedDelivery._id,
           status: selectedDelivery.status,
@@ -77,30 +123,80 @@ const DeliveryDashboard = () => {
     }
   });
 
-  const handleStatusUpdate = (deliveryId, newStatus) => {
+  const handleAcceptDelivery = (deliveryId) => {
+    if (window.confirm('Are you sure you want to accept this delivery?')) {
+      acceptDeliveryMutation.mutate(deliveryId);
+    }
+  };
+
+  const handleStatusUpdate = (deliveryId, newStatus, notes = '') => {
     updateStatusMutation.mutate({
       deliveryId,
       status: newStatus,
-      location: currentLocation
+      location: currentLocation,
+      notes
     });
   };
 
-  const activeDeliveries = deliveries?.filter(d => 
+  const startNavigation = (delivery) => {
+    if (!delivery.pickupLocation?.coordinates || !delivery.dropLocation?.coordinates) {
+      toast.error('Location coordinates not available');
+      return;
+    }
+
+    // Check if browser supports navigation
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+      // For mobile devices, use native map apps
+      const pickup = delivery.pickupLocation.coordinates;
+      const destination = delivery.dropLocation.coordinates;
+      
+      // Try Google Maps first (works on both iOS and Android)
+      const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${pickup.lat},${pickup.lng}&destination=${destination.lat},${destination.lng}&travelmode=driving`;
+      
+      // Apple Maps URL (for iOS devices)
+      const appleMapsUrl = `maps://maps.apple.com/?saddr=${pickup.lat},${pickup.lng}&daddr=${destination.lat},${destination.lng}`;
+      
+      if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+        // iOS device - give option
+        if (window.confirm('Open in Apple Maps? (Cancel for Google Maps)')) {
+          window.location.href = appleMapsUrl;
+        } else {
+          window.open(googleMapsUrl, '_blank');
+        }
+      } else {
+        // Android or other - use Google Maps
+        window.open(googleMapsUrl, '_blank');
+      }
+    } else {
+      // For desktop, open Google Maps in new tab
+      const pickup = delivery.pickupLocation.coordinates;
+      const destination = delivery.dropLocation.coordinates;
+      const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${pickup.lat},${pickup.lng}&destination=${destination.lat},${destination.lng}&travelmode=driving`;
+      window.open(googleMapsUrl, '_blank');
+    }
+    
+    setIsNavigating(true);
+    toast.success('Navigation started in your maps app');
+  };
+
+  const activeDeliveries = myDeliveries?.filter(d => 
     ['assigned', 'picked-up', 'in-transit'].includes(d.status)
   ) || [];
   
-  const completedDeliveries = deliveries?.filter(d => 
+  const completedDeliveries = myDeliveries?.filter(d => 
     d.status === 'delivered'
   ) || [];
 
   const stats = {
+    available: availableDeliveries?.length || 0,
     active: activeDeliveries.length,
     completed: completedDeliveries.length,
-    todayDeliveries: deliveries?.filter(d => {
+    todayDeliveries: myDeliveries?.filter(d => {
       const today = new Date().toDateString();
       return new Date(d.createdAt).toDateString() === today;
-    }).length || 0,
-    avgDeliveryTime: '45 mins'
+    }).length || 0
   };
 
   return (
@@ -115,12 +211,31 @@ const DeliveryDashboard = () => {
               </h1>
               <p className="text-gray-600 dark:text-gray-400 mt-1">
                 Status: <span className="font-semibold text-green-600">Online</span>
+                {currentLocation && (
+                  <span className="ml-2 text-sm">
+                    📍 Location tracked
+                  </span>
+                )}
               </p>
             </div>
             <div className="flex gap-2 mt-4 md:mt-0">
-              <button className="btn-primary flex items-center gap-2">
-                <FiNavigation /> Start Navigation
+              <button 
+                onClick={() => {
+                  refetchAvailable();
+                  refetchMyDeliveries();
+                }}
+                className="btn-secondary flex items-center gap-2"
+              >
+                <FiRefreshCw /> Refresh
               </button>
+              {activeDeliveries.length > 0 && activeDeliveries[0] && (
+                <button 
+                  onClick={() => startNavigation(activeDeliveries[0])}
+                  className="btn-primary flex items-center gap-2"
+                >
+                  <FiNavigation /> Start Navigation
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -134,7 +249,24 @@ const DeliveryDashboard = () => {
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 dark:text-gray-400 text-sm">Active Deliveries</p>
+                <p className="text-gray-600 dark:text-gray-400 text-sm">Available</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {stats.available}
+                </p>
+              </div>
+              <FiAlertCircle className="text-yellow-600 text-3xl" />
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 dark:text-gray-400 text-sm">Active</p>
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">
                   {stats.active}
                 </p>
@@ -146,7 +278,7 @@ const DeliveryDashboard = () => {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
+            transition={{ delay: 0.2 }}
             className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md"
           >
             <div className="flex items-center justify-between">
@@ -216,7 +348,7 @@ const DeliveryDashboard = () => {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md">
           <div className="border-b border-gray-200 dark:border-gray-700">
             <nav className="flex -mb-px">
-              {['active', 'completed', 'routes'].map((tab) => (
+              {['available', 'active', 'completed'].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -226,13 +358,116 @@ const DeliveryDashboard = () => {
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
                 >
-                  {tab}
+                  {tab} ({
+                    tab === 'available' ? stats.available :
+                    tab === 'active' ? stats.active :
+                    stats.completed
+                  })
                 </button>
               ))}
             </nav>
           </div>
 
           <div className="p-6">
+            {/* Available Deliveries Tab */}
+            {activeTab === 'available' && (
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                  Available Deliveries to Accept
+                </h3>
+                {availableDeliveries?.length > 0 ? (
+                  <div className="space-y-4">
+                    {availableDeliveries.map((delivery) => (
+                      <div key={delivery._id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+                        <div className="flex justify-between items-start mb-4">
+                          <div>
+                            <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                              Delivery Request #{delivery._id.slice(-6)}
+                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <FiDroplet className="text-red-500" />
+                              <span className="text-gray-600 dark:text-gray-400">
+                                {delivery.bloodRequest?.bloodType} - {delivery.bloodRequest?.units} units
+                              </span>
+                            </div>
+                          </div>
+                          <span className={`px-3 py-1 text-sm rounded-full ${
+                            delivery.urgency === 'critical' 
+                              ? 'bg-red-100 text-red-800'
+                              : delivery.urgency === 'urgent'
+                              ? 'bg-orange-100 text-orange-800'
+                              : 'bg-green-100 text-green-800'
+                          }`}>
+                            {delivery.urgency || 'Normal'} Priority
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                          <div>
+                            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Pickup Location
+                            </p>
+                            <div className="flex items-start gap-2">
+                              <FiMapPin className="text-gray-500 mt-1" />
+                              <div>
+                                <p className="text-gray-900 dark:text-white">
+                                  {delivery.pickupLocation?.name || 'Blood Bank'}
+                                </p>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">
+                                  {delivery.pickupLocation?.address}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Drop Location
+                            </p>
+                            <div className="flex items-start gap-2">
+                              <FiMapPin className="text-red-500 mt-1" />
+                              <div>
+                                <p className="text-gray-900 dark:text-white">
+                                  {delivery.dropLocation?.name || 'Hospital'}
+                                </p>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">
+                                  {delivery.dropLocation?.address}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm text-gray-600 dark:text-gray-400">
+                            <FiClock className="inline mr-1" />
+                            Estimated time: 30-45 mins
+                          </div>
+                          <button
+                            onClick={() => handleAcceptDelivery(delivery._id)}
+                            className="btn-primary flex items-center gap-2"
+                            disabled={acceptDeliveryMutation.isLoading}
+                          >
+                            <FiCheckCircle /> Accept Delivery
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <FiPackage className="text-gray-400 text-5xl mx-auto mb-3" />
+                    <p className="text-gray-600 dark:text-gray-400">
+                      No available deliveries at the moment.
+                    </p>
+                    <p className="text-sm text-gray-500 mt-2">
+                      Check back soon or refresh the page.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Active Deliveries Tab */}
             {activeTab === 'active' && (
               <div>
