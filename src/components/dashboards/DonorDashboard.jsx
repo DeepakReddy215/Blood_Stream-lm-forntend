@@ -1,18 +1,24 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { FiDroplet, FiCalendar, FiAward, FiClock, FiBell, FiUser, FiDownload } from 'react-icons/fi';
+import { FiDroplet, FiCalendar, FiAward, FiClock, FiBell, FiUser, FiDownload, FiCheckCircle, FiXCircle, FiAlertCircle } from 'react-icons/fi';
 import { useAuth } from '../../contexts/AuthContext';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import BloodCard from '../cards/BloodCard';
 import MapView from '../maps/MapView';
 import { BLOOD_TYPES } from '../../utils/constants';
+import { useSocket } from '../../hooks/useSocket';
 
 const DonorDashboard = () => {
   const { user, updateProfile } = useAuth();
+  const { socket } = useSocket();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('overview');
   const [showBloodCard, setShowBloodCard] = useState(false);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [dialogAction, setDialogAction] = useState(null);
   const [appointmentData, setAppointmentData] = useState({
     date: '',
     time: '',
@@ -30,13 +36,16 @@ const DonorDashboard = () => {
     }
   });
 
-  // Fetch blood requests
-  const { data: bloodRequests } = useQuery({
-    queryKey: ['bloodRequests'],
+  // Fetch compatible blood requests
+  const { data: bloodRequests, refetch: refetchRequests } = useQuery({
+    queryKey: ['bloodRequests', user?.bloodType],
     queryFn: async () => {
-      const response = await axios.get(`${import.meta.env.VITE_API_URL}/blood/requests`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
+      const response = await axios.get(
+        `${import.meta.env.VITE_API_URL}/blood/requests/compatible`,
+        {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        }
+      );
       return response.data.data;
     }
   });
@@ -60,6 +69,58 @@ const DonorDashboard = () => {
     }
   });
 
+  // Accept blood request mutation
+  const acceptRequestMutation = useMutation({
+    mutationFn: async (requestId) => {
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/blood/request/${requestId}/accept`,
+        {},
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      return response.data;
+    },
+    onSuccess: (data) => {
+      toast.success('Blood request accepted! Donation scheduled for tomorrow.');
+      setShowConfirmDialog(false);
+      setSelectedRequest(null);
+      refetchRequests();
+      queryClient.invalidateQueries(['donations']);
+      
+      if (socket) {
+        socket.emit('donor-accepted', {
+          requestId: data.data.requestId,
+          donorName: user.name,
+          donorId: user._id,
+          recipientId: data.data.recipientId
+        });
+      }
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.message || 'Failed to accept request');
+    }
+  });
+
+  // Decline blood request mutation
+  const declineRequestMutation = useMutation({
+    mutationFn: async (requestId) => {
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/blood/request/${requestId}/decline`,
+        {},
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      toast.success('Blood request declined.');
+      setShowConfirmDialog(false);
+      setSelectedRequest(null);
+      refetchRequests();
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.message || 'Failed to decline request');
+    }
+  });
+
   // Respond to blood request mutation
   const respondToRequestMutation = useMutation({
     mutationFn: async ({ requestId, response }) => {
@@ -78,6 +139,42 @@ const DonorDashboard = () => {
       toast.error(error.response?.data?.message || 'Failed to respond to request');
     }
   });
+
+  // Helper functions
+  const isCompatibleDonor = (recipientBloodType) => {
+    const compatibility = {
+      'O-': ['O-', 'O+', 'A-', 'A+', 'B-', 'B+', 'AB-', 'AB+'],
+      'O+': ['O+', 'A+', 'B+', 'AB+'],
+      'A-': ['A-', 'A+', 'AB-', 'AB+'],
+      'A+': ['A+', 'AB+'],
+      'B-': ['B-', 'B+', 'AB-', 'AB+'],
+      'B+': ['B+', 'AB+'],
+      'AB-': ['AB-', 'AB+'],
+      'AB+': ['AB+']
+    };
+    
+    return compatibility[user?.bloodType]?.includes(recipientBloodType);
+  };
+
+  const handleAcceptRequest = (request) => {
+    setSelectedRequest(request);
+    setDialogAction('accept');
+    setShowConfirmDialog(true);
+  };
+
+  const handleDeclineRequest = (request) => {
+    setSelectedRequest(request);
+    setDialogAction('decline');
+    setShowConfirmDialog(true);
+  };
+
+  const confirmAction = () => {
+    if (dialogAction === 'accept') {
+      acceptRequestMutation.mutate(selectedRequest._id);
+    } else if (dialogAction === 'decline') {
+      declineRequestMutation.mutate(selectedRequest._id);
+    }
+  };
 
   const handleRespondToRequest = (requestId, response) => {
     const action = response === 'accept' ? 'accept' : 'decline';
@@ -457,59 +554,78 @@ const DonorDashboard = () => {
             {activeTab === 'requests' && (
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                  Active Blood Requests
+                  Compatible Blood Requests
                 </h3>
-                <div className="space-y-4">
-                  {bloodRequests?.map((request) => (
-                    <div key={request._id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <p className="font-semibold text-gray-900 dark:text-white">
-                            {request.bloodType} Blood Required
-                          </p>
-                          <p className="text-sm text-gray-600 dark:text-gray-400">
-                            {request.reason}
-                          </p>
+                {bloodRequests?.length > 0 ? (
+                  <div className="space-y-4">
+                    {bloodRequests.map((request) => {
+                      const isCompatible = isCompatibleDonor(request.bloodType);
+                      const myMatch = request.matchedDonors?.find(m => m.donor === user?._id || m.donor?._id === user?._id);
+                      const hasResponded = myMatch?.status !== 'pending';
+                      
+                      return (
+                        <div key={request._id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+                          {/* Request details */}
+                          <div className="flex justify-between items-start mb-4">
+                            <div>
+                              <p className="font-semibold text-lg text-gray-900 dark:text-white">
+                                {request.bloodType} Blood Required
+                              </p>
+                              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                                {request.reason}
+                              </p>
+                            </div>
+                            <span className={`px-3 py-1 text-sm rounded-full ${
+                              request.urgency === 'critical' 
+                                ? 'bg-red-100 text-red-800' 
+                                : request.urgency === 'urgent'
+                                ? 'bg-orange-100 text-orange-800'
+                                : 'bg-green-100 text-green-800'
+                            }`}>
+                              {request.urgency}
+                            </span>
+                          </div>
+
+                          {/* Status display if already responded */}
+                          {myMatch && (
+                            <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                              <p className="text-sm">
+                                Your Response: 
+                                <span className={`ml-2 font-semibold ${
+                                  myMatch.status === 'accepted' ? 'text-green-600' :
+                                  myMatch.status === 'declined' ? 'text-red-600' :
+                                  'text-orange-600'
+                                }`}>
+                                  {myMatch.status.charAt(0).toUpperCase() + myMatch.status.slice(1)}
+                                </span>
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Action buttons */}
+                          {isCompatible && !hasResponded && canDonateAgain() && (
+                            <div className="flex gap-3">
+                              <button
+                                onClick={() => handleAcceptRequest(request)}
+                                className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                              >
+                                <FiCheckCircle /> Accept Request
+                              </button>
+                              <button
+                                onClick={() => handleDeclineRequest(request)}
+                                className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                              >
+                                <FiXCircle /> Decline
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <span className={`px-2 py-1 text-xs rounded-full ${
-                          request.urgency === 'critical' 
-                            ? 'bg-red-100 text-red-800' 
-                            : request.urgency === 'urgent'
-                            ? 'bg-orange-100 text-orange-800'
-                            : 'bg-green-100 text-green-800'
-                        }`}>
-                          {request.urgency}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4 text-sm text-gray-600 dark:text-gray-400">
-                        <div>
-                          <span className="font-medium">Units Needed:</span> {request.units}
-                        </div>
-                        <div>
-                          <span className="font-medium">Hospital:</span> {request.hospital?.name || 'N/A'}
-                        </div>
-                      </div>
-                      {request.bloodType === user?.bloodType && (
-                        <div className="flex gap-2 mt-3">
-                          <button 
-                            onClick={() => handleRespondToRequest(request._id, 'accept')}
-                            className="btn-primary flex-1"
-                            disabled={respondToRequestMutation.isLoading}
-                          >
-                            Accept Request
-                          </button>
-                          <button 
-                            onClick={() => handleRespondToRequest(request._id, 'decline')}
-                            className="btn-secondary flex-1"
-                            disabled={respondToRequestMutation.isLoading}
-                          >
-                            Decline
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-gray-600 dark:text-gray-400">No compatible blood requests.</p>
+                )}
               </div>
             )}
 
@@ -575,6 +691,50 @@ const DonorDashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* Confirmation Dialog */}
+      {showConfirmDialog && selectedRequest && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4"
+          >
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              {dialogAction === 'accept' ? 'Confirm Acceptance' : 'Confirm Decline'}
+            </h3>
+            
+            {dialogAction === 'accept' ? (
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                Accepting will schedule a donation for tomorrow at 10 AM.
+              </p>
+            ) : (
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                Are you sure you want to decline this request?
+              </p>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowConfirmDialog(false)}
+                className="flex-1 bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmAction}
+                className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
+                  dialogAction === 'accept'
+                    ? 'bg-green-600 text-white hover:bg-green-700'
+                    : 'bg-red-600 text-white hover:bg-red-700'
+                }`}
+              >
+                {dialogAction === 'accept' ? 'Accept' : 'Decline'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };
