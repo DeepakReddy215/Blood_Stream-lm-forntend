@@ -1,25 +1,16 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  FiDroplet, FiCalendar, FiAward, FiClock, FiBell, 
-  FiUser, FiDownload, FiCheckCircle, FiXCircle, FiAlertCircle 
-} from 'react-icons/fi';
+import { FiDroplet, FiCalendar, FiAward, FiClock, FiBell, FiUser, FiDownload } from 'react-icons/fi';
 import { useAuth } from '../../contexts/AuthContext';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import BloodCard from '../cards/BloodCard';
+import MapView from '../maps/MapView';
 import { BLOOD_TYPES } from '../../utils/constants';
-import LoadingSpinner from '../common/LoadingSpinner';
-import { useSocket } from '../../hooks/useSocket';
-
-// Lazy load heavy components
-const BloodCard = lazy(() => import('../cards/BloodCard'));
-const MapView = lazy(() => import('../maps/MapView'));
 
 const DonorDashboard = () => {
   const { user, updateProfile } = useAuth();
-  const { socket } = useSocket();
-  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('overview');
   const [showBloodCard, setShowBloodCard] = useState(false);
   const [appointmentData, setAppointmentData] = useState({
@@ -27,35 +18,6 @@ const DonorDashboard = () => {
     time: '',
     bloodBank: ''
   });
-  const [selectedRequest, setSelectedRequest] = useState(null);
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [dialogAction, setDialogAction] = useState(null);
-
-  // Listen for real-time updates
-  useEffect(() => {
-    if (!socket) return;
-
-    socket.on('new-blood-request', (data) => {
-      toast.custom((t) => (
-        <div className="bg-red-600 text-white p-4 rounded-lg shadow-lg">
-          <div className="flex items-center gap-2">
-            <FiAlertCircle className="text-2xl" />
-            <div>
-              <p className="font-semibold">New Blood Request!</p>
-              <p className="text-sm">{data.message}</p>
-            </div>
-          </div>
-        </div>
-      ));
-      
-      // Refetch blood requests
-      queryClient.invalidateQueries(['bloodRequests']);
-    });
-
-    return () => {
-      socket.off('new-blood-request');
-    };
-  }, [socket, queryClient]);
 
   // Fetch donation history
   const { data: donations, isLoading: donationsLoading } = useQuery({
@@ -68,112 +30,18 @@ const DonorDashboard = () => {
     }
   });
 
-  // Fetch compatible blood requests
-  const { data: bloodRequests, refetch: refetchRequests } = useQuery({
-    queryKey: ['bloodRequests', user?.bloodType],
+  // Fetch blood requests
+  const { data: bloodRequests } = useQuery({
+    queryKey: ['bloodRequests'],
     queryFn: async () => {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/blood/requests/compatible`,
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-        }
-      );
+      const response = await axios.get(`${import.meta.env.VITE_API_URL}/blood/requests`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
       return response.data.data;
     }
   });
 
-  // Accept blood request mutation
-  const acceptRequestMutation = useMutation({
-    mutationFn: async (requestId) => {
-      const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/blood/request/${requestId}/accept`,
-        {},
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-      );
-      return response.data;
-    },
-    onSuccess: (data) => {
-      toast.success('Blood request accepted! Donation scheduled for tomorrow.');
-      setShowConfirmDialog(false);
-      setSelectedRequest(null);
-      
-      // Refetch data
-      refetchRequests();
-      queryClient.invalidateQueries(['donations']);
-      
-      // Send socket notification to recipient
-      if (socket) {
-        socket.emit('donor-accepted', {
-          requestId: data.data.requestId,
-          donorName: user.name,
-          donorId: user._id,
-          recipientId: data.data.recipientId
-        });
-      }
-    },
-    onError: (error) => {
-      toast.error(error.response?.data?.message || 'Failed to accept request');
-    }
-  });
-
-  // Decline blood request mutation
-  const declineRequestMutation = useMutation({
-    mutationFn: async (requestId) => {
-      const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/blood/request/${requestId}/decline`,
-        {},
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-      );
-      return response.data;
-    },
-    onSuccess: () => {
-      toast.success('Blood request declined.');
-      setShowConfirmDialog(false);
-      setSelectedRequest(null);
-      refetchRequests();
-    },
-    onError: (error) => {
-      toast.error(error.response?.data?.message || 'Failed to decline request');
-    }
-  });
-
-  // Check if blood type is compatible for donation
-  const isCompatibleDonor = (recipientBloodType) => {
-    const compatibility = {
-      'O-': ['O-', 'O+', 'A-', 'A+', 'B-', 'B+', 'AB-', 'AB+'],
-      'O+': ['O+', 'A+', 'B+', 'AB+'],
-      'A-': ['A-', 'A+', 'AB-', 'AB+'],
-      'A+': ['A+', 'AB+'],
-      'B-': ['B-', 'B+', 'AB-', 'AB+'],
-      'B+': ['B+', 'AB+'],
-      'AB-': ['AB-', 'AB+'],
-      'AB+': ['AB+']
-    };
-    
-    return compatibility[user?.bloodType]?.includes(recipientBloodType);
-  };
-
-  const handleAcceptRequest = (request) => {
-    setSelectedRequest(request);
-    setDialogAction('accept');
-    setShowConfirmDialog(true);
-  };
-
-  const handleDeclineRequest = (request) => {
-    setSelectedRequest(request);
-    setDialogAction('decline');
-    setShowConfirmDialog(true);
-  };
-
-  const confirmAction = () => {
-    if (dialogAction === 'accept') {
-      acceptRequestMutation.mutate(selectedRequest._id);
-    } else if (dialogAction === 'decline') {
-      declineRequestMutation.mutate(selectedRequest._id);
-    }
-  };
-
-  // Schedule donation mutation (existing)
+  // Schedule donation mutation
   const scheduleDonationMutation = useMutation({
     mutationFn: async (data) => {
       const response = await axios.post(
@@ -186,12 +54,37 @@ const DonorDashboard = () => {
     onSuccess: () => {
       toast.success('Donation scheduled successfully!');
       setAppointmentData({ date: '', time: '', bloodBank: '' });
-      queryClient.invalidateQueries(['donations']);
     },
     onError: (error) => {
       toast.error(error.response?.data?.message || 'Failed to schedule donation');
     }
   });
+
+  // Respond to blood request mutation
+  const respondToRequestMutation = useMutation({
+    mutationFn: async ({ requestId, response }) => {
+      const res = await axios.post(
+        `${import.meta.env.VITE_API_URL}/blood/respond/${requestId}`,
+        { response },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      return res.data;
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || 'Response sent successfully!');
+      refetch(); // Refresh blood requests
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.message || 'Failed to respond to request');
+    }
+  });
+
+  const handleRespondToRequest = (requestId, response) => {
+    const action = response === 'accept' ? 'accept' : 'decline';
+    if (window.confirm(`Are you sure you want to ${action} this blood donation request?`)) {
+      respondToRequestMutation.mutate({ requestId, response });
+    }
+  };
 
   const handleScheduleDonation = (e) => {
     e.preventDefault();
@@ -200,7 +93,7 @@ const DonorDashboard = () => {
       scheduledDate,
       bloodBank: {
         name: appointmentData.bloodBank,
-        address: 'Sample Address'
+        address: 'Sample Address' // You can make this dynamic
       }
     });
   };
@@ -217,10 +110,7 @@ const DonorDashboard = () => {
     totalDonations: user?.donationCount || 0,
     liveSaved: (user?.donationCount || 0) * 3,
     nextEligible: canDonateAgain() ? 'Eligible Now' : 'Check Back Soon',
-    badge: user?.badgeLevel || 'bronze',
-    pendingRequests: bloodRequests?.filter(r => 
-      r.matchedDonors?.some(m => m.donor === user?._id && m.status === 'pending')
-    ).length || 0
+    badge: user?.badgeLevel || 'bronze'
   };
 
   return (
@@ -235,12 +125,6 @@ const DonorDashboard = () => {
               </h1>
               <p className="text-gray-600 dark:text-gray-400 mt-1">
                 Blood Type: <span className="font-semibold text-red-600">{user?.bloodType}</span>
-                {canDonateAgain() && (
-                  <span className="ml-3 text-green-600">
-                    <FiCheckCircle className="inline mr-1" />
-                    Eligible to donate
-                  </span>
-                )}
               </p>
             </div>
             <div className="flex gap-2 mt-4 md:mt-0">
@@ -300,34 +184,12 @@ const DonorDashboard = () => {
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 dark:text-gray-400 text-sm">Pending Requests</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {stats.pendingRequests}
+                <p className="text-gray-600 dark:text-gray-400 text-sm">Next Eligible</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">
+                  {stats.nextEligible}
                 </p>
               </div>
-              <FiBell className="text-orange-600 text-3xl animate-pulse" />
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 dark:text-gray-400 text-sm">Current Badge</p>
-                <p className="text-lg font-bold capitalize text-gray-900 dark:text-white">
-                  {stats.badge}
-                </p>
-              </div>
-              <FiAward className={`text-3xl ${
-                stats.badge === 'platinum' ? 'text-purple-600' :
-                stats.badge === 'gold' ? 'text-yellow-600' :
-                stats.badge === 'silver' ? 'text-gray-600' :
-                'text-amber-600'
-              }`} />
+              <FiClock className="text-blue-600 text-3xl" />
             </div>
           </motion.div>
 
@@ -361,9 +223,7 @@ const DonorDashboard = () => {
             animate={{ opacity: 1, scale: 1 }}
             className="mb-6"
           >
-            <Suspense fallback={<LoadingSpinner />}>
-              <BloodCard user={user} />
-            </Suspense>
+            <BloodCard user={user} />
           </motion.div>
         )}
 
@@ -371,7 +231,7 @@ const DonorDashboard = () => {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md">
           <div className="border-b border-gray-200 dark:border-gray-700">
             <nav className="flex -mb-px">
-              {['overview', 'requests', 'schedule', 'history', 'profile'].map((tab) => (
+              {['overview', 'schedule', 'history', 'requests', 'profile'].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -382,11 +242,6 @@ const DonorDashboard = () => {
                   }`}
                 >
                   {tab}
-                  {tab === 'requests' && stats.pendingRequests > 0 && (
-                    <span className="ml-2 bg-red-600 text-white text-xs px-2 py-1 rounded-full">
-                      {stats.pendingRequests}
-                    </span>
-                  )}
                 </button>
               ))}
             </nav>
@@ -396,29 +251,6 @@ const DonorDashboard = () => {
             {/* Overview Tab */}
             {activeTab === 'overview' && (
               <div className="space-y-6">
-                {/* Urgent Requests Alert */}
-                {bloodRequests?.filter(r => r.urgency === 'critical').length > 0 && (
-                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-                    <div className="flex items-center gap-3">
-                      <FiAlertCircle className="text-red-600 text-2xl" />
-                      <div>
-                        <p className="font-semibold text-red-900 dark:text-red-300">
-                          Critical Blood Requests Need Your Help!
-                        </p>
-                        <p className="text-sm text-red-700 dark:text-red-400">
-                          There are {bloodRequests.filter(r => r.urgency === 'critical').length} critical requests matching your blood type.
-                        </p>
-                        <button
-                          onClick={() => setActiveTab('requests')}
-                          className="mt-2 text-sm text-red-600 hover:text-red-700 font-semibold"
-                        >
-                          View Requests →
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
                     Recent Blood Requests in Your Area
@@ -621,139 +453,63 @@ const DonorDashboard = () => {
               </div>
             )}
 
-            {/* Requests Tab - MAIN FIX HERE */}
+            {/* Requests Tab */}
             {activeTab === 'requests' && (
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                  Compatible Blood Requests
+                  Active Blood Requests
                 </h3>
-                {bloodRequests?.length > 0 ? (
-                  <div className="space-y-4">
-                    {bloodRequests.map((request) => {
-                      const isCompatible = isCompatibleDonor(request.bloodType);
-                      const myMatch = request.matchedDonors?.find(m => m.donor === user?._id);
-                      const hasResponded = myMatch?.status !== 'pending';
-                      
-                      return (
-                        <div key={request._id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-                          <div className="flex justify-between items-start mb-4">
-                            <div>
-                              <p className="font-semibold text-lg text-gray-900 dark:text-white">
-                                {request.bloodType} Blood Required
-                              </p>
-                              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                                {request.reason}
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <span className={`px-3 py-1 text-sm rounded-full ${
-                                request.urgency === 'critical' 
-                                  ? 'bg-red-100 text-red-800' 
-                                  : request.urgency === 'urgent'
-                                  ? 'bg-orange-100 text-orange-800'
-                                  : 'bg-green-100 text-green-800'
-                              }`}>
-                                {request.urgency}
-                              </span>
-                              {isCompatible && (
-                                <p className="text-xs text-green-600 mt-2">
-                                  <FiCheckCircle className="inline mr-1" />
-                                  You can donate
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-4">
-                            <div>
-                              <span className="font-medium text-gray-700 dark:text-gray-300">Units Needed:</span>
-                              <p className="text-gray-900 dark:text-white">{request.units}</p>
-                            </div>
-                            <div>
-                              <span className="font-medium text-gray-700 dark:text-gray-300">Hospital:</span>
-                              <p className="text-gray-900 dark:text-white">{request.hospital?.name || 'Local Hospital'}</p>
-                            </div>
-                            <div>
-                              <span className="font-medium text-gray-700 dark:text-gray-300">Location:</span>
-                              <p className="text-gray-900 dark:text-white">{request.hospital?.address || 'Contact for details'}</p>
-                            </div>
-                            <div>
-                              <span className="font-medium text-gray-700 dark:text-gray-300">Requested:</span>
-                              <p className="text-gray-900 dark:text-white">
-                                {new Date(request.createdAt).toLocaleDateString()}
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Status Display */}
-                          {myMatch && (
-                            <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                              <p className="text-sm">
-                                Your Response: 
-                                <span className={`ml-2 font-semibold ${
-                                  myMatch.status === 'accepted' ? 'text-green-600' :
-                                  myMatch.status === 'declined' ? 'text-red-600' :
-                                  'text-orange-600'
-                                }`}>
-                                  {myMatch.status.charAt(0).toUpperCase() + myMatch.status.slice(1)}
-                                </span>
-                              </p>
-                              {myMatch.status === 'accepted' && (
-                                <p className="text-xs text-gray-600 mt-1">
-                                  Donation scheduled for tomorrow. You'll receive details soon.
-                                </p>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Action Buttons */}
-                          {isCompatible && !hasResponded && canDonateAgain() && (
-                            <div className="flex gap-3">
-                              <button
-                                onClick={() => handleAcceptRequest(request)}
-                                className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
-                              >
-                                <FiCheckCircle /> Accept Request
-                              </button>
-                              <button
-                                onClick={() => handleDeclineRequest(request)}
-                                className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
-                              >
-                                <FiXCircle /> Decline
-                              </button>
-                            </div>
-                          )}
-
-                          {isCompatible && !canDonateAgain() && (
-                            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
-                              <p className="text-sm text-yellow-800 dark:text-yellow-300">
-                                You're not eligible to donate yet. Please wait 56 days after your last donation.
-                              </p>
-                            </div>
-                          )}
-
-                          {!isCompatible && (
-                            <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
-                              <p className="text-sm text-gray-600 dark:text-gray-400">
-                                Your blood type ({user?.bloodType}) is not compatible with this request ({request.bloodType}).
-                              </p>
-                            </div>
-                          )}
+                <div className="space-y-4">
+                  {bloodRequests?.map((request) => (
+                    <div key={request._id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <p className="font-semibold text-gray-900 dark:text-white">
+                            {request.bloodType} Blood Required
+                          </p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            {request.reason}
+                          </p>
                         </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <FiDroplet className="text-gray-400 text-5xl mx-auto mb-3" />
-                    <p className="text-gray-600 dark:text-gray-400">
-                      No compatible blood requests at the moment.
-                    </p>
-                    <p className="text-sm text-gray-500 mt-2">
-                      We'll notify you when someone needs your blood type.
-                    </p>
-                  </div>
-                )}
+                        <span className={`px-2 py-1 text-xs rounded-full ${
+                          request.urgency === 'critical' 
+                            ? 'bg-red-100 text-red-800' 
+                            : request.urgency === 'urgent'
+                            ? 'bg-orange-100 text-orange-800'
+                            : 'bg-green-100 text-green-800'
+                        }`}>
+                          {request.urgency}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4 text-sm text-gray-600 dark:text-gray-400">
+                        <div>
+                          <span className="font-medium">Units Needed:</span> {request.units}
+                        </div>
+                        <div>
+                          <span className="font-medium">Hospital:</span> {request.hospital?.name || 'N/A'}
+                        </div>
+                      </div>
+                      {request.bloodType === user?.bloodType && (
+                        <div className="flex gap-2 mt-3">
+                          <button 
+                            onClick={() => handleRespondToRequest(request._id, 'accept')}
+                            className="btn-primary flex-1"
+                            disabled={respondToRequestMutation.isLoading}
+                          >
+                            Accept Request
+                          </button>
+                          <button 
+                            onClick={() => handleRespondToRequest(request._id, 'decline')}
+                            className="btn-secondary flex-1"
+                            disabled={respondToRequestMutation.isLoading}
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -818,71 +574,6 @@ const DonorDashboard = () => {
             )}
           </div>
         </div>
-
-        {/* Confirmation Dialog */}
-        {showConfirmDialog && selectedRequest && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4"
-            >
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                {dialogAction === 'accept' ? 'Confirm Acceptance' : 'Confirm Decline'}
-              </h3>
-              
-              {dialogAction === 'accept' ? (
-                <div className="mb-4">
-                  <p className="text-gray-600 dark:text-gray-400 mb-3">
-                    You are about to accept a blood donation request for:
-                  </p>
-                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
-                    <p className="font-semibold text-gray-900 dark:text-white">
-                      {selectedRequest.bloodType} - {selectedRequest.units} units
-                    </p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      Hospital: {selectedRequest.hospital?.name}
-                    </p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-                      <FiCalendar className="inline mr-1" />
-                      Donation will be scheduled for tomorrow
-                    </p>
-                  </div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">
-                    You'll receive location details and appointment time via email and SMS.
-                  </p>
-                </div>
-              ) : (
-                <p className="text-gray-600 dark:text-gray-400 mb-4">
-                  Are you sure you want to decline this blood request? The recipient will be notified.
-                </p>
-              )}
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowConfirmDialog(false)}
-                  className="flex-1 bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={confirmAction}
-                  disabled={acceptRequestMutation.isLoading || declineRequestMutation.isLoading}
-                  className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
-                    dialogAction === 'accept'
-                      ? 'bg-green-600 text-white hover:bg-green-700'
-                      : 'bg-red-600 text-white hover:bg-red-700'
-                  } disabled:opacity-50`}
-                >
-                  {acceptRequestMutation.isLoading || declineRequestMutation.isLoading
-                    ? 'Processing...'
-                    : dialogAction === 'accept' ? 'Accept' : 'Decline'
-                  }
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
       </div>
     </div>
   );
