@@ -556,12 +556,21 @@ const DonorDashboard = () => {
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
                   Compatible Blood Requests
                 </h3>
+                
+                {/* Debug info */}
+                <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm">
+                  <p className="text-blue-800 dark:text-blue-200">
+                    Your Blood Type: <strong>{user?.bloodType}</strong> | 
+                    Total Requests: <strong>{bloodRequests?.length || 0}</strong>
+                  </p>
+                </div>
+
                 {bloodRequests?.length > 0 ? (
                   <div className="space-y-4">
                     {bloodRequests.map((request) => {
                       const isCompatible = isCompatibleDonor(request.bloodType);
                       const myMatch = request.matchedDonors?.find(m => m.donor === user?._id || m.donor?._id === user?._id);
-                      const hasResponded = myMatch?.status !== 'pending';
+                      const hasResponded = myMatch && myMatch.status !== 'pending';
                       
                       return (
                         <div key={request._id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-6">
@@ -574,6 +583,11 @@ const DonorDashboard = () => {
                               <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                                 {request.reason}
                               </p>
+                              {/* Debug info */}
+                              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                                Compatible: {isCompatible ? '✓ Yes' : '✗ No'} | 
+                                HasResponded: {hasResponded ? '✓ Yes' : '✗ No'}
+                              </p>
                             </div>
                             <span className={`px-3 py-1 text-sm rounded-full ${
                               request.urgency === 'critical' 
@@ -584,6 +598,16 @@ const DonorDashboard = () => {
                             }`}>
                               {request.urgency}
                             </span>
+                          </div>
+
+                          {/* Request details */}
+                          <div className="grid grid-cols-2 gap-4 text-sm text-gray-600 dark:text-gray-400 mb-4">
+                            <div>
+                              <span className="font-medium">Units Needed:</span> {request.units}
+                            </div>
+                            <div>
+                              <span className="font-medium">Hospital:</span> {request.hospital?.name || 'N/A'}
+                            </div>
                           </div>
 
                           {/* Status display if already responded */}
@@ -602,21 +626,31 @@ const DonorDashboard = () => {
                             </div>
                           )}
 
-                          {/* Action buttons */}
-                          {isCompatible && !hasResponded && canDonateAgain() && (
-                            <div className="flex gap-3">
-                              <button
-                                onClick={() => handleAcceptRequest(request)}
-                                className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
-                              >
-                                <FiCheckCircle /> Accept Request
-                              </button>
-                              <button
-                                onClick={() => handleDeclineRequest(request)}
-                                className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
-                              >
-                                <FiXCircle /> Decline
-                              </button>
+                          {/* Action buttons - Show if compatible and haven't responded */}
+                          {isCompatible && !hasResponded && (
+                            <div className="space-y-2">
+                              {!canDonateAgain() && (
+                                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 mb-2">
+                                  <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                                    <FiAlertCircle className="inline mr-2" />
+                                    Note: You recently donated. Please ensure you're eligible before accepting.
+                                  </p>
+                                </div>
+                              )}
+                              <div className="flex gap-3">
+                                <button
+                                  onClick={() => handleAcceptRequest(request)}
+                                  className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                                >
+                                  <FiCheckCircle /> Accept Request
+                                </button>
+                                <button
+                                  onClick={() => handleDeclineRequest(request)}
+                                  className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                                >
+                                  <FiXCircle /> Decline
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>
