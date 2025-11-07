@@ -141,21 +141,6 @@ const DonorDashboard = () => {
   });
 
   // Helper functions
-  const isCompatibleDonor = (recipientBloodType) => {
-    const compatibility = {
-      'O-': ['O-', 'O+', 'A-', 'A+', 'B-', 'B+', 'AB-', 'AB+'],
-      'O+': ['O+', 'A+', 'B+', 'AB+'],
-      'A-': ['A-', 'A+', 'AB-', 'AB+'],
-      'A+': ['A+', 'AB+'],
-      'B-': ['B-', 'B+', 'AB-', 'AB+'],
-      'B+': ['B+', 'AB+'],
-      'AB-': ['AB-', 'AB+'],
-      'AB+': ['AB+']
-    };
-    
-    return compatibility[user?.bloodType]?.includes(recipientBloodType);
-  };
-
   const handleAcceptRequest = (request) => {
     setSelectedRequest(request);
     setDialogAction('accept');
@@ -554,27 +539,20 @@ const DonorDashboard = () => {
             {activeTab === 'requests' && (
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                  Compatible Blood Requests
+                  Blood Requests You Can Help With
                 </h3>
-                
-                {/* Debug info */}
-                <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm">
-                  <p className="text-blue-800 dark:text-blue-200">
-                    Your Blood Type: <strong>{user?.bloodType}</strong> | 
-                    Total Requests: <strong>{bloodRequests?.length || 0}</strong>
-                  </p>
-                </div>
 
                 {bloodRequests?.length > 0 ? (
                   <div className="space-y-4">
                     {bloodRequests.map((request) => {
-                      const isCompatible = isCompatibleDonor(request.bloodType);
-                      const myMatch = request.matchedDonors?.find(m => m.donor === user?._id || m.donor?._id === user?._id);
+                      const myMatch = request.matchedDonors?.find(m => {
+                        const matchDonorId = typeof m.donor === 'string' ? m.donor : m.donor?._id;
+                        return matchDonorId === user?._id;
+                      });
                       const hasResponded = myMatch && myMatch.status !== 'pending';
                       
                       return (
                         <div key={request._id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-                          {/* Request details */}
                           <div className="flex justify-between items-start mb-4">
                             <div>
                               <p className="font-semibold text-lg text-gray-900 dark:text-white">
@@ -582,11 +560,6 @@ const DonorDashboard = () => {
                               </p>
                               <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                                 {request.reason}
-                              </p>
-                              {/* Debug info */}
-                              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                                Compatible: {isCompatible ? '✓ Yes' : '✗ No'} | 
-                                HasResponded: {hasResponded ? '✓ Yes' : '✗ No'}
                               </p>
                             </div>
                             <span className={`px-3 py-1 text-sm rounded-full ${
@@ -626,31 +599,21 @@ const DonorDashboard = () => {
                             </div>
                           )}
 
-                          {/* Action buttons - Show if compatible and haven't responded */}
-                          {isCompatible && !hasResponded && (
-                            <div className="space-y-2">
-                              {!canDonateAgain() && (
-                                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 mb-2">
-                                  <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                                    <FiAlertCircle className="inline mr-2" />
-                                    Note: You recently donated. Please ensure you're eligible before accepting.
-                                  </p>
-                                </div>
-                              )}
-                              <div className="flex gap-3">
-                                <button
-                                  onClick={() => handleAcceptRequest(request)}
-                                  className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
-                                >
-                                  <FiCheckCircle /> Accept Request
-                                </button>
-                                <button
-                                  onClick={() => handleDeclineRequest(request)}
-                                  className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
-                                >
-                                  <FiXCircle /> Decline
-                                </button>
-                              </div>
+                          {/* Action buttons */}
+                          {!hasResponded && (
+                            <div className="flex gap-3">
+                              <button
+                                onClick={() => handleAcceptRequest(request)}
+                                className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                              >
+                                <FiCheckCircle /> Accept Request
+                              </button>
+                              <button
+                                onClick={() => handleDeclineRequest(request)}
+                                className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                              >
+                                <FiXCircle /> Decline
+                              </button>
                             </div>
                           )}
                         </div>
@@ -658,7 +621,16 @@ const DonorDashboard = () => {
                     })}
                   </div>
                 ) : (
-                  <p className="text-gray-600 dark:text-gray-400">No compatible blood requests.</p>
+                  <div className="text-center py-8">
+                    <p className="text-gray-600 dark:text-gray-400 mb-2">
+                      No blood requests available at the moment.
+                    </p>
+                    {!user?.bloodType && (
+                      <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                        Please update your blood type in your profile to see compatible requests.
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             )}
